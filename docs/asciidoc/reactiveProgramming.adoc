@@ -107,8 +107,8 @@ if she does not have a favorite. This goes through three services (one gives fav
 the second fetches favorite details, and the third offers suggestions with details), as
 follows:
 
-====
 .Example of Callback Hell
+====
 [source,java]
 ----
 userService.getFavorites(userId, new Callback<List<String>>() { //<1>
@@ -169,8 +169,8 @@ push to the UI inside the UI thread.
 That is a lot of code, and it is a bit hard to follow and has repetitive parts.
 Consider its equivalent in Reactor:
 
-====
 .Example of Reactor code equivalent to callback code
+====
 [source,java]
 ----
 userService.getFavorites(userId) // <1>
@@ -195,8 +195,8 @@ What if you want to ensure the favorite IDs are retrieved in less than 800ms or,
 takes longer, get them from a cache? In the callback-based code, that is a complicated
 task. In Reactor it becomes as easy as adding a `timeout` operator in the chain, as follows:
 
-====
 .Example of Reactor code with timeout and fallback
+====
 [source,java]
 ----
 userService.getFavorites(userId)
@@ -226,8 +226,8 @@ Consider another example: We get a list of IDs from which we want to fetch a nam
 statistic and combine these pair-wise, all of it asynchronously. The following example
 does so with a list of type `CompletableFuture`:
 
-====
 .Example of `CompletableFuture` combination
+====
 [source,java]
 ----
 CompletableFuture<List<String>> ids = ifhIds(); // <1>
@@ -277,8 +277,8 @@ be processed and return the list of results that we can assert.
 Since Reactor has more combination operators out of the box, this process can be
 simplified, as follows:
 
-====
 .Example of Reactor code equivalent to future code
+====
 [source,java]
 ----
 Flux<String> ids = ifhrIds(); // <1>

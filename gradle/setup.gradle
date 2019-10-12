@@ -14,12 +14,11 @@
  * limitations under the License.
  */
 
-wrapper {
-	group = 'Project Setup'
-	gradleVersion = "4.10.2"
-}
-
 configure(subprojects) { p ->
+  
+  	if (p.name == 'benchmarks')
+		return
+  
 	apply plugin: 'propdeps-maven'
 	apply plugin: 'maven'
 
@@ -74,7 +73,7 @@ def customizePom(pom, gradleProject) {
 			}
 			licenses {
 				license {
-					name 'The Apache Software License, Version 2.0'
+					name 'Apache License, Version 2.0'
 					url 'https://www.apache.org/licenses/LICENSE-2.0.txt'
 					distribution 'repo'
 				}
@@ -101,9 +100,9 @@ def customizePom(pom, gradleProject) {
 					email = 'sbasle@pivotal.io'
 				}
 				developer {
-					id = 'rsivaram'
-					name = 'Rajini Sivaram'
-					email = 'rsivaram@pivotal.io'
+					id = 'bsideup'
+					name = 'Sergei Egorov'
+					email = 'segorov@pivotal.io'
 				}
 				developer {
 					id = 'sdeleuze'

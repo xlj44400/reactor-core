@@ -26,6 +26,7 @@ import java.util.function.Supplier;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
+
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
@@ -49,20 +50,23 @@ public class VirtualTimeSchedulerTests {
 
 	@Test
 	public void allEnabled() {
-		Assert.assertFalse(Schedulers.newParallel("") instanceof VirtualTimeScheduler);
-		Assert.assertFalse(Schedulers.newElastic("") instanceof VirtualTimeScheduler);
-		Assert.assertFalse(Schedulers.newSingle("") instanceof VirtualTimeScheduler);
+		assertThat(Schedulers.newParallel("")).isNotInstanceOf(VirtualTimeScheduler.class);
+		assertThat(Schedulers.newElastic("")).isNotInstanceOf(VirtualTimeScheduler.class);
+		assertThat(Schedulers.newBoundedElastic(4, Integer.MAX_VALUE, "")).isNotInstanceOf(VirtualTimeScheduler.class);
+		assertThat(Schedulers.newSingle("")).isNotInstanceOf(VirtualTimeScheduler.class);
 
 		VirtualTimeScheduler.getOrSet();
 
-		Assert.assertTrue(Schedulers.newParallel("") instanceof VirtualTimeScheduler);
-		Assert.assertTrue(Schedulers.newElastic("") instanceof VirtualTimeScheduler);
-		Assert.assertTrue(Schedulers.newSingle("") instanceof VirtualTimeScheduler);
+		assertThat(Schedulers.newParallel("")).isInstanceOf(VirtualTimeScheduler.class);
+		assertThat(Schedulers.newElastic("")).isInstanceOf(VirtualTimeScheduler.class);
+		assertThat(Schedulers.newBoundedElastic(4, Integer.MAX_VALUE, "")).isInstanceOf(VirtualTimeScheduler.class);
+		assertThat(Schedulers.newSingle("")).isInstanceOf(VirtualTimeScheduler.class);
 
 		VirtualTimeScheduler t = VirtualTimeScheduler.get();
 
 		Assert.assertSame(Schedulers.newParallel(""), t);
 		Assert.assertSame(Schedulers.newElastic(""), t);
+		Assert.assertSame(Schedulers.newBoundedElastic(5, Integer.MAX_VALUE, ""), t); //same even though different parameter
 		Assert.assertSame(Schedulers.newSingle(""), t);
 	}
 
@@ -248,6 +252,71 @@ public class VirtualTimeSchedulerTests {
 		finally {
 			vts.dispose();
 		}
+	}
+
+	@Test
+	public void scheduledTaskCount() {
+		VirtualTimeScheduler vts = VirtualTimeScheduler.create();
+		assertThat(vts.getScheduledTaskCount()).as("initial value").isEqualTo(0);
+
+		vts.schedule(() -> {
+		});
+		assertThat(vts.getScheduledTaskCount()).as("a task scheduled").isEqualTo(1);
+	}
+
+	@Test
+	public void scheduledTaskCountWithInitialDelay() {
+		// schedule with delay
+		VirtualTimeScheduler vts = VirtualTimeScheduler.create();
+		vts.schedule(() -> {
+		}, 10, TimeUnit.DAYS);
+		assertThat(vts.getScheduledTaskCount()).as("scheduled in future").isEqualTo(1);
+
+		vts.advanceTimeBy(Duration.ofDays(11));
+		assertThat(vts.getScheduledTaskCount()).as("time advanced").isEqualTo(1);
+	}
+
+	@Test
+	public void scheduledTaskCountWithNoInitialDelay() {
+		// schedulePeriodically with no initial delay
+		VirtualTimeScheduler vts = VirtualTimeScheduler.create();
+		vts.schedulePeriodically(() -> {
+		}, 0, 5, TimeUnit.DAYS);
+
+		assertThat(vts.getScheduledTaskCount())
+			.as("initial delay task performed and scheduled for the first periodical task")
+			.isEqualTo(2);
+
+		vts.advanceTimeBy(Duration.ofDays(5));
+		assertThat(vts.getScheduledTaskCount())
+			.as("scheduled for the second periodical task")
+			.isEqualTo(3);
+	}
+
+	@Test
+	public void scheduledTaskCountBySchedulePeriodically() {
+		// schedulePeriodically with initial delay
+		VirtualTimeScheduler vts = VirtualTimeScheduler.create();
+		vts.schedulePeriodically(() -> {
+		}, 10, 5, TimeUnit.DAYS);
+		assertThat(vts.getScheduledTaskCount())
+			.as("scheduled for initial delay task")
+			.isEqualTo(1);
+
+		vts.advanceTimeBy(Duration.ofDays(1));
+		assertThat(vts.getScheduledTaskCount())
+			.as("Still on initial delay")
+			.isEqualTo(1);
+
+		vts.advanceTimeBy(Duration.ofDays(10));
+		assertThat(vts.getScheduledTaskCount())
+			.as("first periodical task scheduled after initial one")
+			.isEqualTo(2);
+
+		vts.advanceTimeBy(Duration.ofDays(5));
+		assertThat(vts.getScheduledTaskCount())
+			.as("second periodical task scheduled")
+			.isEqualTo(3);
 	}
 
 	@SuppressWarnings("unchecked")

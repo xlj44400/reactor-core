@@ -19,19 +19,25 @@ package reactor.core.publisher;
 import java.util.Objects;
 
 import org.reactivestreams.Publisher;
+import reactor.core.CorePublisher;
+import reactor.core.CoreSubscriber;
 import reactor.core.Scannable;
 import reactor.util.annotation.Nullable;
 
 /**
  * A decorating {@link Flux} {@link Publisher} that exposes {@link Flux} API over an
- * arbitrary {@link Publisher} Useful to create operators which return a {@link Flux}.
+ * arbitrary {@link Publisher}. Useful to create operators which return a {@link Flux}.
  *
  * @param <I> delegate {@link Publisher} type
  * @param <O> produced type
  */
-abstract class FluxFromMonoOperator<I, O> extends Flux<O> implements Scannable {
+abstract class FluxFromMonoOperator<I, O> extends Flux<O> implements Scannable,
+                                                                     OptimizableOperator<O, I> {
 
 	protected final Mono<? extends I> source;
+
+	@Nullable
+	final OptimizableOperator<?, I> optimizableOperator;
 
 	/**
 	 * Build a {@link FluxFromMonoOperator} wrapper around the passed parent {@link Publisher}
@@ -40,6 +46,7 @@ abstract class FluxFromMonoOperator<I, O> extends Flux<O> implements Scannable {
 	 */
 	protected FluxFromMonoOperator(Mono<? extends I> source) {
 		this.source = Objects.requireNonNull(source);
+		this.optimizableOperator = source instanceof OptimizableOperator ? (OptimizableOperator) source : null;
 	}
 
 	@Override
@@ -48,6 +55,40 @@ abstract class FluxFromMonoOperator<I, O> extends Flux<O> implements Scannable {
 		if (key == Attr.PREFETCH) return getPrefetch();
 		if (key == Attr.PARENT) return source;
 		return null;
+	}
+
+
+	@Override
+	@SuppressWarnings("unchecked")
+	public final void subscribe(CoreSubscriber<? super O> subscriber) {
+		OptimizableOperator operator = this;
+		while (true) {
+			subscriber = operator.subscribeOrReturn(subscriber);
+			if (subscriber == null) {
+				// null means "I will subscribe myself", returning...
+				return;
+			}
+			OptimizableOperator newSource = operator.nextOptimizableSource();
+			if (newSource == null) {
+				operator.source().subscribe(subscriber);
+				return;
+			}
+			operator = newSource;
+		}
+	}
+
+	@Override
+	@Nullable
+	public abstract CoreSubscriber<? super I> subscribeOrReturn(CoreSubscriber<? super O> actual);
+
+	@Override
+	public final CorePublisher<? extends I> source() {
+		return source;
+	}
+
+	@Override
+	public final OptimizableOperator<?, ? extends I> nextOptimizableSource() {
+		return optimizableOperator;
 	}
 
 }

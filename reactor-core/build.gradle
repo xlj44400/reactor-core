@@ -16,13 +16,18 @@
 import me.champeau.gradle.japicmp.JapicmpTask
 
 apply plugin: 'idea' //needed to avoid IDEA seeing the jmh folder as source
-apply plugin: 'me.champeau.gradle.jmh'
+apply plugin: 'osgi'
+apply plugin: 'org.unbroken-dome.test-sets'
 
 sourceSets {
   noMicrometerTest {
 	java.srcDir 'src/test/java'
 	resources.srcDir 'src/test/resources'
   }
+}
+
+testSets {
+  blockHoundTest
 }
 
 configurations {
@@ -36,8 +41,8 @@ configurations {
 
 dependencies {
   // Reactive Streams
-  compile "org.reactivestreams:reactive-streams:1.0.2"
-  testCompile "org.reactivestreams:reactive-streams-tck:1.0.2"
+  compile "org.reactivestreams:reactive-streams:1.0.3"
+  testCompile "org.reactivestreams:reactive-streams-tck:1.0.3"
 
   // JSR-305 annotations
   optional "com.google.code.findbugs:jsr305:3.0.2"
@@ -49,6 +54,9 @@ dependencies {
   optional "io.micrometer:micrometer-core:$micrometerVersion"
 
   optional("org.jetbrains.kotlin:kotlin-stdlib:${kotlinVersion}")
+
+  //Optional BlockHound support
+  optional 'io.projectreactor.tools:blockhound:1.0.0.RC1'
 
   //Optional JDK 9 Converter
   jsr166backport "io.projectreactor:jsr166:1.0.0.RELEASE"
@@ -68,16 +76,12 @@ dependencies {
 		  "org.mockito:mockito-core:$mockitoVersion",
 		  "org.openjdk.jol:jol-core:0.9",
 		  "pl.pragmatists:JUnitParams:$jUnitParamsVersion",
-		  "org.awaitility:awaitility:3.1.2"
+		  "org.awaitility:awaitility:$awaitilityVersion",
+		  "com.pivovarit:throwing-function:$throwingFunctionVersion"
 
   noMicrometerTestCompile sourceSets.main.output
   noMicrometerTestCompile sourceSets.test.output
   noMicrometerTestCompile configurations.testCompile
-}
-
-jmh {
-  include = ["reactor.AssemblyTraceBenchmark.*"]
-  resultFormat = 'JSON'
 }
 
 task downloadBaseline {
@@ -97,7 +101,7 @@ task doDownloadBaseline(type: Download) {
   onlyIfNewer true
   compress true
 
-  src "${repositories.mavenCentral().url}io/projectreactor/reactor-core/$compatibleVersion/reactor-core-${compatibleVersion}.jar"
+  src "${repositories.jcenter().url}io/projectreactor/reactor-core/$compatibleVersion/reactor-core-${compatibleVersion}.jar"
   dest "${buildDir}/baselineLibs/reactor-core-${compatibleVersion}.jar"
 
   finalizedBy { japicmp }
@@ -127,6 +131,7 @@ javadoc {
 
   options.addStringOption('charSet', 'UTF-8')
 
+  options.addBooleanOption('nodeprecated', true)
   options.memberLevel = org.gradle.external.javadoc.JavadocMemberLevel.PROTECTED
   options.author = true
   options.header = "$project.name"
@@ -145,6 +150,11 @@ javadoc {
   maxMemory = "1024m"
   destinationDir = new File(project.buildDir, "docs/javadoc")
 
+  excludes = [
+		  // Must be public due to the ServiceLoader's requirements
+		  "reactor/core/scheduler/ReactorBlockHoundIntegration.java",
+  ]
+
   doLast {
 	// work around https://github.com/gradle/gradle/issues/4046
 	copy {
@@ -153,44 +163,6 @@ javadoc {
 	  include "**/doc-files/**/*"
 	}
   }
-}
-
-// Need https://github.com/Kotlin/dokka/issues/184 to be fixed to avoid "Can't find node by signature" log spam
-task dokka(type: org.jetbrains.dokka.gradle.DokkaTask) {
-  dependsOn jar
-  group = "documentation"
-  description = "Generates Kotlin API documentation."
-  moduleName = "reactor-core"
-  jdkVersion = 8
-
-  outputFormat = "html"
-  outputDirectory = new File(project.buildDir, "docs/kdoc")
-
-  //this is needed so that links to java classes are resolved
-  doFirst {
-	classpath += project.jar.outputs.files.getFiles()
-	classpath += project.sourceSets.main.compileClasspath
-  }
-  //this is needed so that the kdoc only generates for kotlin classes
-  //(default kotlinTasks sourceSet also includes java)
-  kotlinTasks {
-
-  }
-  processConfigurations = []
-  sourceDirs = files("src/main/kotlin")
-
-  externalDocumentationLink {
-	url = new URL("https://projectreactor.io/docs/core/release/api/")
-  }
-  externalDocumentationLink {
-	url = new URL("https://www.reactive-streams.org/reactive-streams-1.0.2-javadoc/")
-  }
-}
-
-task kdocZip(type: Zip, dependsOn: dokka) {
-  //ends up similar to javadoc jar: reactor-core-xxxx.RELEASE-kdoc.zip
-  classifier = 'kdoc'
-  from("${project.buildDir}/docs/kdoc")
 }
 
 task testStaticInit(type: Test, group: 'verification') {
@@ -236,7 +208,7 @@ task testNoMicrometer(type: Test, group: 'verification') {
 //inherit basic test task + common configuration in root
 //always depend on testStaticInit, skip testNG on Travis, skip loops when not releasing
 //note that this way the tasks can be run individually
-test {
+check {
   dependsOn testStaticInit
   dependsOn testNoMicrometer
   if (System.env.TRAVIS != "true") {
@@ -256,7 +228,8 @@ if (!JavaVersion.current().isJava9Compatible()) {
 jar {
   manifest {
 	attributes 'Implementation-Title': 'reactor-core',
-			'Implementation-Version': version
+			'Implementation-Version': version,
+			'Automatic-Module-Name': 'reactor.core'
 	instruction 'Import-Package', bundleImportPackages.join(',')
   }
 }
@@ -265,7 +238,6 @@ artifacts {
   archives sourcesJar
   archives javadocJar
   archives rootProject.tasks.docsZip
-  archives kdocZip
 }
 
 jacocoTestReport.dependsOn test
@@ -291,7 +263,7 @@ if (JavaVersion.current().java9Compatible) {
 	}
   }
 
-  [jar, jmhJar]*.each {
+  [jar]*.each {
 	it.from sourceSets.java9.output
   }
 

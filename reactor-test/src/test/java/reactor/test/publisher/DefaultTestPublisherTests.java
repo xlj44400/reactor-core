@@ -15,6 +15,7 @@
  */
 package reactor.test.publisher;
 
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.Test;
@@ -212,6 +213,21 @@ public class DefaultTestPublisherTests {
 	}
 
 	@Test
+	public void misbehavingMonoCanAvoidCompleteAfterOnNext() {
+		TestPublisher<String> publisher = TestPublisher.createNoncompliant(Violation.CLEANUP_ON_TERMINATE);
+		AtomicLong terminalCount = new AtomicLong();
+
+		publisher.mono()
+		         .subscribe(countingSubscriber(terminalCount));
+
+		assertThat(terminalCount).as("before onNext").hasValue(0L);
+
+		publisher.next("foo");
+
+		assertThat(terminalCount).as("after onNext").hasValue(0L);
+	}
+
+	@Test
 	public void expectSubscribers() {
 		TestPublisher<String> publisher = TestPublisher.create();
 
@@ -305,11 +321,46 @@ public class DefaultTestPublisherTests {
 		                                 .emit("foo"))
 		            .expectNext("foo").expectComplete() // N/A
 		            .verify())
-		        .withMessageContaining("Expected minimum request of 6; got 5");
+		        .withMessageContaining("Expected smallest requested amount to be >= 6; got 5");
 
 		publisher.assertCancelled();
 		publisher.assertNoSubscribers();
 		publisher.assertMinRequested(0);
+	}
+
+	@Test
+	public void expectMaxRequestedNormal() {
+		TestPublisher<String> publisher = TestPublisher.create();
+
+		Flux.from(publisher).limitRequest(5).subscribe();
+		publisher.assertMaxRequested(5);
+
+		Flux.from(publisher).limitRequest(10).subscribe();
+		publisher.assertSubscribers(2);
+		publisher.assertMaxRequested(10);
+	}
+
+	@Test
+	public void expectMaxRequestedWithUnbounded() {
+		TestPublisher<String> publisher = TestPublisher.create();
+
+		Flux.from(publisher).limitRequest(5).subscribe();
+		publisher.assertMaxRequested(5);
+
+		Flux.from(publisher).subscribe();
+		publisher.assertSubscribers(2);
+		publisher.assertMaxRequested(Long.MAX_VALUE);
+	}
+
+	@Test
+	public void expectMaxRequestedFailure() {
+		TestPublisher<String> publisher = TestPublisher.create();
+
+		Flux.from(publisher).limitRequest(7).subscribe();
+
+		assertThatExceptionOfType(AssertionError.class)
+				.isThrownBy(() -> publisher.assertMaxRequested(6))
+				.withMessage("Expected largest requested amount to be <= 6; got 7");
 	}
 
 	@Test

@@ -23,6 +23,7 @@ import java.util.function.Consumer;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.Fuseable;
@@ -33,12 +34,11 @@ import reactor.util.context.Context;
 /**
  * @author Stephane Maldini
  */
-final class FluxOnBackpressureBuffer<O> extends FluxOperator<O, O> implements Fuseable {
+final class FluxOnBackpressureBuffer<O> extends InternalFluxOperator<O, O> implements Fuseable {
 
 	final Consumer<? super O> onOverflow;
 	final int                 bufferSize;
 	final boolean             unbounded;
-	final boolean             delayError;
 
 	FluxOnBackpressureBuffer(Flux<? extends O> source,
 			int bufferSize,
@@ -51,16 +51,14 @@ final class FluxOnBackpressureBuffer<O> extends FluxOperator<O, O> implements Fu
 		this.bufferSize = bufferSize;
 		this.unbounded = unbounded;
 		this.onOverflow = onOverflow;
-		this.delayError = unbounded || onOverflow != null;
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super O> actual) {
-		source.subscribe(new BackpressureBufferSubscriber<>(actual,
+	public CoreSubscriber<? super O> subscribeOrReturn(CoreSubscriber<? super O> actual) {
+		return new BackpressureBufferSubscriber<>(actual,
 				bufferSize,
 				unbounded,
-				delayError,
-				onOverflow));
+				onOverflow);
 	}
 
 	@Override
@@ -74,8 +72,8 @@ final class FluxOnBackpressureBuffer<O> extends FluxOperator<O, O> implements Fu
 		final CoreSubscriber<? super T> actual;
 		final Context                   ctx;
 		final Queue<T>                  queue;
+		final int                       capacityOrSkip;
 		final Consumer<? super T>       onOverflow;
-		final boolean                   delayError;
 
 		Subscription s;
 
@@ -99,11 +97,9 @@ final class FluxOnBackpressureBuffer<O> extends FluxOperator<O, O> implements Fu
 		BackpressureBufferSubscriber(CoreSubscriber<? super T> actual,
 				int bufferSize,
 				boolean unbounded,
-				boolean delayError,
 				@Nullable Consumer<? super T> onOverflow) {
 			this.actual = actual;
 			this.ctx = actual.currentContext();
-			this.delayError = delayError;
 			this.onOverflow = onOverflow;
 
 			Queue<T> q;
@@ -113,6 +109,15 @@ final class FluxOnBackpressureBuffer<O> extends FluxOperator<O, O> implements Fu
 			}
 			else {
 				q = Queues.<T>get(bufferSize).get();
+			}
+
+			if (!unbounded && Queues.capacity(q) > bufferSize) {
+				this.capacityOrSkip = bufferSize;
+			}
+			else {
+				//for unbounded, the bufferSize is not terribly relevant
+				//for bounded, if the queue has exact capacity then when checking q.size() == capacityOrSkip, this will skip the check
+				this.capacityOrSkip = Integer.MAX_VALUE;
 			}
 
 			this.queue = q;
@@ -128,7 +133,8 @@ final class FluxOnBackpressureBuffer<O> extends FluxOperator<O, O> implements Fu
 			if (key == Attr.BUFFERED) return queue.size();
 			if (key == Attr.ERROR) return error;
 			if (key == Attr.PREFETCH) return Integer.MAX_VALUE;
-			if (key == Attr.DELAY_ERROR) return delayError;
+			if (key == Attr.DELAY_ERROR) return true;
+			if (key == Attr.CAPACITY) return capacityOrSkip == Integer.MAX_VALUE ? Queues.capacity(queue) : capacityOrSkip;
 
 			return InnerOperator.super.scanUnsafe(key);
 		}
@@ -148,10 +154,8 @@ final class FluxOnBackpressureBuffer<O> extends FluxOperator<O, O> implements Fu
 				Operators.onNextDropped(t, ctx);
 				return;
 			}
-			if (!queue.offer(t)) {
-				Throwable ex =
-						Operators.onOperatorError(s, Exceptions.failWithOverflow(), t,
-								ctx);
+			if ((capacityOrSkip != Integer.MAX_VALUE && queue.size() >= capacityOrSkip) || !queue.offer(t)) {
+				Throwable ex = Operators.onOperatorError(s, Exceptions.failWithOverflow(), t, ctx);
 				if (onOverflow != null) {
 					try {
 						onOverflow.accept(t);
@@ -361,29 +365,16 @@ final class FluxOnBackpressureBuffer<O> extends FluxOperator<O, O> implements Fu
 				return true;
 			}
 			if (d) {
-				if (delayError) {
-					if (empty) {
-						Throwable e = error;
-						if (e != null) {
-							a.onError(e);
-						}
-						else {
-							a.onComplete();
-						}
-						return true;
-					}
-				}
-				else {
+				//the operator always delays the errors, particularly overflow one
+				if (empty) {
 					Throwable e = error;
 					if (e != null) {
-						Operators.onDiscardQueueWithClear(queue, ctx, null);
 						a.onError(e);
-						return true;
 					}
-					else if (empty) {
+					else {
 						a.onComplete();
-						return true;
 					}
+					return true;
 				}
 			}
 			return false;

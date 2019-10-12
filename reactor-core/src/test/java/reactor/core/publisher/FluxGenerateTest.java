@@ -24,12 +24,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Assert;
 import org.junit.Test;
 import reactor.core.CoreSubscriber;
+import reactor.core.Exceptions;
 import reactor.core.Fuseable;
 import reactor.core.Scannable;
 import reactor.test.StepVerifier;
 import reactor.test.subscriber.AssertSubscriber;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 public class FluxGenerateTest {
 
@@ -48,6 +50,20 @@ public class FluxGenerateTest {
 	@Test(expected = NullPointerException.class)
 	public void stateConsumerNull() {
 		Flux.generate(() -> 1, (s, o) -> s, null);
+	}
+
+	@Test
+	public void sinkNotUsed() {
+		StepVerifier.create(Flux.generate(sink -> {}))
+		            .expectFusion(Fuseable.NONE)
+		            .verifyErrorMessage("The generator didn't call any of the SynchronousSink method");
+	}
+
+	@Test
+	public void sinkNotUsedFusion() {
+		StepVerifier.create(Flux.generate(sink -> {}))
+		            .expectFusion(Fuseable.SYNC)
+		            .verifyErrorMessage("The generator didn't call any of the SynchronousSink method");
 	}
 
 	@Test
@@ -190,6 +206,15 @@ public class FluxGenerateTest {
 		  .assertNotComplete()
 		  .assertError(RuntimeException.class)
 		  .assertErrorMessage("forced failure");
+	}
+
+	@Test
+	public void generatorThrowsFusion() {
+		StepVerifier.create(
+				Flux.<Integer>generate(o -> { throw new IllegalStateException("forced failure"); }))
+		            .expectFusion(Fuseable.SYNC)
+		            .verifyErrorSatisfies(e -> assertThat(e).isInstanceOf(IllegalStateException.class)
+		                                                    .hasMessage("forced failure"));
 	}
 
 	@Test
@@ -403,6 +428,36 @@ public class FluxGenerateTest {
 				                        new AtomicInteger())))
 		            .expectNext(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 		            .verifyComplete();
+	}
+
+	//see https://github.com/reactor/reactor-core/issues/1685
+	@Test
+	public void fusedGeneratedNextAndErrorPropagateException() {
+		StepVerifier.create(
+				Flux.<String>generate(sink -> {
+					sink.next("foo");
+					sink.error(new IllegalStateException("boom"));
+				}))
+		            .expectFusion(Fuseable.SYNC)
+		            .expectNext("foo")
+		            .verifyErrorSatisfies(e -> assertThat(e)
+				            .isInstanceOf(IllegalStateException.class)
+				            .hasMessage("boom")
+		            );
+	}
+
+	//see https://github.com/reactor/reactor-core/issues/1685
+	@Test
+	public void fusedGenerateErrorThrowsPropagateException() {
+		StepVerifier.create(
+				Flux.<String>generate(sink -> {
+					sink.error(new IllegalStateException("boom"));
+				}))
+		            .expectFusion(Fuseable.SYNC)
+		            .verifyErrorSatisfies(e -> assertThat(e)
+				            .isInstanceOf(IllegalStateException.class)
+				            .hasMessage("boom")
+		            );
 	}
 
 }

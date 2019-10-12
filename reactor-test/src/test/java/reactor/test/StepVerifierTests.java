@@ -33,6 +33,7 @@ import java.util.concurrent.locks.LockSupport;
 import org.assertj.core.api.Assertions;
 import org.junit.Assert;
 import org.junit.Ignore;
+import org.junit.Rule;
 import org.junit.Test;
 import reactor.core.Fuseable;
 import reactor.core.publisher.DirectProcessor;
@@ -56,6 +57,61 @@ import static reactor.test.publisher.TestPublisher.Violation.REQUEST_OVERFLOW;
  * @author Simon Basle
  */
 public class StepVerifierTests {
+
+	@Test
+	public void expectationErrorWithGenericValueFormatterBypassesExtractor() {
+		Flux<String> flux = Flux.just("foobar");
+		StepVerifierOptions options = StepVerifierOptions
+				.create()
+				.valueFormatter(ValueFormatters.forClass(Object.class, t -> t.getClass().getSimpleName() + "{'" + t + "'}"));
+
+		assertThatExceptionOfType(AssertionError.class)
+				.isThrownBy(StepVerifier.create(flux, options)
+				                        .expectError()
+						::verify)
+				.withMessage("expectation \"expectError()\" failed (expected: onError(); actual: ImmutableSignal{'onNext(foobar)'})");
+	}
+
+	@Test
+	public void expectationErrorWithSpecificValueFormatterExtractsSignal() {
+		Flux<String> flux = Flux.just("foobar");
+		StepVerifierOptions options = StepVerifierOptions
+				.create()
+				.valueFormatter(ValueFormatters.forClass(String.class, s -> "" + s.length()));
+
+		assertThatExceptionOfType(AssertionError.class)
+				.isThrownBy(StepVerifier.create(flux, options)
+				                        .expectError()
+						::verify)
+				.withMessage("expectation \"expectError()\" failed (expected: onError(); actual: onNext(6))");
+	}
+
+	@Test
+	public void expectationErrorWithoutValueFormatter() {
+		Flux<String> flux = Flux.just("foobar");
+		StepVerifierOptions options = StepVerifierOptions.create();
+
+		assertThatExceptionOfType(AssertionError.class)
+				.isThrownBy(StepVerifier.create(flux, options)
+				                        .expectError()
+						::verify)
+				.withMessage("expectation \"expectError()\" failed (expected: onError(); actual: onNext(foobar))");
+	}
+
+	@Test
+	public void expectInvalidNextsWithCustomConverter() {
+		Flux<String> flux = Flux.just("foo", "bar");
+
+		StepVerifierOptions options = StepVerifierOptions.create()
+		                                                 .valueFormatter(ValueFormatters.forClass(String.class, s -> "String=>" + s));
+
+		assertThatExceptionOfType(AssertionError.class)
+				.isThrownBy(() -> StepVerifier.create(flux, options)
+				                              .expectNext("foo", "baz")
+				                              .expectComplete()
+				                              .verify())
+				.withMessage("expectation \"expectNext(String=>baz)\" failed (expected value: String=>baz; actual value: String=>bar)");
+	}
 
 	@Test
 	public void expectNext() {
@@ -99,6 +155,16 @@ public class StepVerifierTests {
 
 		StepVerifier.create(flux)
 		            .expectNext("foo", "bar")
+		            .expectComplete()
+		            .verify();
+	}
+
+	@Test
+	public void expectNextsMoreThan6() {
+		Flux<Integer> flux = Flux.range(1, 7);
+
+		StepVerifier.create(flux)
+		            .expectNext(1, 2, 3, 4, 5, 6, 7)
 		            .expectComplete()
 		            .verify();
 	}
@@ -1949,7 +2015,7 @@ public class StepVerifierTests {
 	//see https://github.com/reactor/reactor-core/issues/959
 	@Test
 	public void assertNextWithSubscribeOnDirectProcessor() {
-		Scheduler scheduler = Schedulers.newElastic("test");
+		Scheduler scheduler = Schedulers.newBoundedElastic(1, 100, "test");
 		DirectProcessor<Integer> processor = DirectProcessor.create();
 		Mono<Integer> doAction = Mono.fromSupplier(() -> 22)
 		                             .doOnNext(processor::onNext)
@@ -2144,5 +2210,53 @@ public class StepVerifierTests {
 						::verify)
 				.withMessage("Unexpected error during a no-event expectation: java.lang.IllegalStateException: boom")
 				.withCause(new IllegalStateException("boom"));
+	}
+
+	@Test
+	public void verifyLaterCanVerifyConnectableFlux() {
+		Flux<Integer> autoconnectableFlux = Flux.just(1, 2, 3).publish().autoConnect(2);
+
+		StepVerifier deferred1 = StepVerifier.create(autoconnectableFlux)
+		                                     .expectNext(1, 2, 3)
+		                                     .expectComplete()
+		                                     .verifyLater();
+
+		assertThatExceptionOfType(AssertionError.class)
+				.isThrownBy(() -> deferred1.verify(Duration.ofSeconds(1)))
+				.withMessageContaining("timed out");
+
+		StepVerifier deferred2 = StepVerifier.create(autoconnectableFlux)
+		                                     .expectNext(1, 2, 3)
+		                                     .expectComplete()
+		                                     .verifyLater()
+		                                     .verifyLater()
+		                                     .verifyLater()
+		                                     .verifyLater();
+
+		deferred1.verify(Duration.ofSeconds(1));
+		deferred2.verify(Duration.ofSeconds(1));
+	}
+
+	@Test
+	public void verifyLaterCanVerifyConnectableFlux_withAssertionErrors() {
+		Flux<Integer> autoconnectableFlux = Flux.just(1, 2, 3).publish().autoConnect(2);
+
+		StepVerifier deferred1 = StepVerifier.create(autoconnectableFlux)
+		                                     .expectNext(1, 2, 4)
+		                                     .expectComplete()
+		                                     .verifyLater();
+
+		StepVerifier deferred2 = StepVerifier.create(autoconnectableFlux)
+		                                     .expectNext(1, 2, 5)
+		                                     .expectComplete()
+		                                     .verifyLater();
+
+		assertThatExceptionOfType(AssertionError.class)
+				.isThrownBy(() -> deferred1.verify(Duration.ofSeconds(10)))
+				.withMessage("expectation \"expectNext(4)\" failed (expected value: 4; actual value: 3)");
+
+		assertThatExceptionOfType(AssertionError.class)
+				.isThrownBy(() -> deferred2.verify(Duration.ofSeconds(10)))
+				.withMessage("expectation \"expectNext(5)\" failed (expected value: 5; actual value: 3)");
 	}
 }

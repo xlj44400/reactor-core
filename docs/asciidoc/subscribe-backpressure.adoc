@@ -33,7 +33,7 @@ Flux.range(1, 10)
 ----
 ====
 
-The preceding snippets prints out the following:
+The preceding snippet prints out the following:
 
 ====
 [source]

@@ -24,6 +24,7 @@ import java.util.stream.Stream;
 
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
+import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.Exceptions;
 import reactor.core.Scannable;
@@ -40,23 +41,29 @@ import reactor.util.context.Context;
  *
  * @author Simon Baslé
  */
-final class MonoDelayUntil<T> extends Mono<T> implements Scannable {
+final class MonoDelayUntil<T> extends Mono<T> implements Scannable,
+                                                         OptimizableOperator<T, T> {
 
 	final Mono<T> source;
 
 	Function<? super T, ? extends Publisher<?>>[] otherGenerators;
+
+	@Nullable
+	final OptimizableOperator<?, T> optimizableOperator;
 
 	@SuppressWarnings("unchecked")
 	MonoDelayUntil(Mono<T> monoSource,
 			Function<? super T, ? extends Publisher<?>> triggerGenerator) {
 		this.source = Objects.requireNonNull(monoSource, "monoSource");
 		this.otherGenerators = new Function[] { Objects.requireNonNull(triggerGenerator, "triggerGenerator")};
+		this.optimizableOperator = source instanceof OptimizableOperator ? (OptimizableOperator) source : null;
 	}
 
 	MonoDelayUntil(Mono<T> monoSource,
 			Function<? super T, ? extends Publisher<?>>[] triggerGenerators) {
 		this.source = Objects.requireNonNull(monoSource, "monoSource");
 		this.otherGenerators = triggerGenerators;
+		this.optimizableOperator = source instanceof OptimizableOperator ? (OptimizableOperator) source : null;
 	}
 
 	/**
@@ -78,9 +85,25 @@ final class MonoDelayUntil<T> extends Mono<T> implements Scannable {
 
 	@Override
 	public void subscribe(CoreSubscriber<? super T> actual) {
+		source.subscribe(subscribeOrReturn(actual));
+	}
+
+	@Override
+	public final CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		DelayUntilCoordinator<T> parent = new DelayUntilCoordinator<>(actual, otherGenerators);
 		actual.onSubscribe(parent);
-		source.subscribe(parent);
+
+		return parent;
+	}
+
+	@Override
+	public final CorePublisher<? extends T> source() {
+		return source;
+	}
+
+	@Override
+	public final OptimizableOperator<?, ? extends T> nextOptimizableSource() {
+		return optimizableOperator;
 	}
 
 	@Override
@@ -166,7 +189,17 @@ final class MonoDelayUntil<T> extends Mono<T> implements Scannable {
 			}
 
 			Function<? super T, ? extends Publisher<?>> generator = otherGenerators[triggerIndex];
-			Publisher<?> p = generator.apply(value);
+
+			Publisher<?> p;
+
+			try {
+				p = generator.apply(value);
+			}
+			catch (Throwable t) {
+				onError(t);
+				return;
+			}
+
 			DelayUntilTrigger triggerSubscriber = new DelayUntilTrigger<>(this);
 
 			this.triggerSubscribers[triggerIndex] = triggerSubscriber;

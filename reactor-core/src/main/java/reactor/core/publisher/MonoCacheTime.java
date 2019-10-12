@@ -37,7 +37,7 @@ import reactor.util.context.Context;
  *
  * @author Simon Baslé
  */
-class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
+class MonoCacheTime<T> extends InternalMonoOperator<T, T> implements Runnable {
 
 	private static final Logger LOGGER = Loggers.getLogger(MonoCacheTime.class);
 
@@ -54,8 +54,9 @@ class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
 		super(source);
 		this.ttlGenerator = ignoredSignal -> ttl;
 		this.clock = clock;
-		//noinspection unchecked
-		this.state = (Signal<T>) EMPTY;
+		@SuppressWarnings("unchecked")
+		Signal<T> state = (Signal<T>) EMPTY;
+		this.state = state;
 	}
 
 	MonoCacheTime(Mono<? extends T> source, Function<? super Signal<T>, Duration> ttlGenerator,
@@ -63,8 +64,9 @@ class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
 		super(source);
 		this.ttlGenerator = ttlGenerator;
 		this.clock = clock;
-		//noinspection unchecked
-		this.state = (Signal<T>) EMPTY;
+		@SuppressWarnings("unchecked")
+		Signal<T> state = (Signal<T>) EMPTY;
+		this.state = state;
 	}
 
 	MonoCacheTime(Mono<? extends T> source,
@@ -92,7 +94,7 @@ class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
 	}
 
 	@Override
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		CacheMonoSubscriber<T> inner = new CacheMonoSubscriber<>(actual);
 		actual.onSubscribe(inner);
 		for(;;){
@@ -139,6 +141,7 @@ class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
 				break;
 			}
 		}
+		return null;
 	}
 
 	static final class CoordinatorSubscriber<T> implements InnerConsumer<T>, Signal<T> {
@@ -284,7 +287,11 @@ class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
 					}
 				}
 
-				if (ttl != null) {
+				if (ttl != null && ttl.isZero()) {
+					//immediate cache clear
+					main.run();
+				}
+				else if (ttl != null) {
 					main.clock.schedule(main, ttl.toMillis(), TimeUnit.MILLISECONDS);
 				}
 				else {
@@ -292,10 +299,8 @@ class MonoCacheTime<T> extends MonoOperator<T, T> implements Runnable {
 					if (signal.isOnNext()) {
 						Operators.onNextDropped(signal.get(), currentContext());
 					}
-					else if (signal.isOnError()) {
-						Operators.onErrorDropped(signal.getThrowable(), currentContext());
-					}
-					//immediate cache clear
+					//if signal.isOnError(), avoid dropping the error. it is not really dropped but already suppressed
+					//in all cases, unless nextDropped hook throws, immediate cache clear
 					main.run();
 				}
 			}

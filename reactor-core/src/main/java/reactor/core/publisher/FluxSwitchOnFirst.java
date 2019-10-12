@@ -33,11 +33,10 @@ import reactor.util.context.Context;
  * @param <T>
  * @param <R>
  */
-final class FluxSwitchOnFirst<T, R> extends FluxOperator<T, R> {
+final class FluxSwitchOnFirst<T, R> extends InternalFluxOperator<T, R> {
 
     static final int STATE_INIT            = 0;
     static final int STATE_SUBSCRIBED_ONCE = 1;
-    static final int STATE_REQUESTED_ONCE  = 2;
 
     final BiFunction<Signal<? extends T>, Flux<T>, Publisher<? extends R>> transformer;
 
@@ -55,12 +54,12 @@ final class FluxSwitchOnFirst<T, R> extends FluxOperator<T, R> {
 
     @Override
     @SuppressWarnings("unchecked")
-    public void subscribe(CoreSubscriber<? super R> actual) {
+    public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super R> actual) {
         if (actual instanceof Fuseable.ConditionalSubscriber) {
             source.subscribe(new SwitchOnFirstConditionalInner<>((Fuseable.ConditionalSubscriber<? super R>) actual, transformer));
-            return;
+            return null;
         }
-        source.subscribe(new SwitchOnFirstInner<>(actual, transformer));
+        return new SwitchOnFirstInner<>(actual, transformer);
     }
 
     static abstract class AbstractSwitchOnFirstInner<T, R> extends Flux<T>
@@ -71,9 +70,9 @@ final class FluxSwitchOnFirst<T, R> extends FluxOperator<T, R> {
 
         Subscription s;
         Throwable    throwable;
+        T            first;
+        boolean      done;
 
-        volatile T       first;
-        volatile boolean done;
         volatile boolean cancelled;
 
         volatile CoreSubscriber<? super T> inner;
@@ -292,10 +291,8 @@ final class FluxSwitchOnFirst<T, R> extends FluxOperator<T, R> {
         @Override
         public void request(long n) {
             if (Operators.validate(n)) {
-                if (state == STATE_SUBSCRIBED_ONCE && STATE.compareAndSet(this, STATE_SUBSCRIBED_ONCE, STATE_REQUESTED_ONCE)) {
-                    if (first != null) {
-                        drain();
-                    }
+                if (first != null) {
+                    drain();
 
                     if (n != Long.MAX_VALUE) {
                         if (--n > 0) {
@@ -425,14 +422,8 @@ final class FluxSwitchOnFirst<T, R> extends FluxOperator<T, R> {
         @Override
         public void request(long n) {
             if (Operators.validate(n)) {
-                if (state == STATE_SUBSCRIBED_ONCE && STATE.compareAndSet(this, STATE_SUBSCRIBED_ONCE, STATE_REQUESTED_ONCE)) {
-                    boolean sent = false;
-
-                    if (first != null) {
-                        sent = drainRegular();
-                    }
-
-                    if (sent && n != Long.MAX_VALUE) {
+                if (first != null) {
+                    if (drainRegular() && n != Long.MAX_VALUE) {
                         if (--n > 0) {
                             s.request(n);
                             return;

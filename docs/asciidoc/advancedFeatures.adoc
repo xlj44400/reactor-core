@@ -62,9 +62,9 @@ Subscriber to Transformed MapAndFilter: PURPLE
 ----
 ====
 
-=== Using the `compose` Operator
+=== Using the `transformDeferred` Operator
 
-The `compose` operator is similar to `transform` and also lets you encapsulate operators
+The `transformDeferred` operator is similar to `transform` and also lets you encapsulate operators
 in a function. The major difference is that this function is applied to the original
 sequence _on a per-subscriber basis_. It means that the function can actually produce a
 different operator chain for each subscription (by maintaining some state). The
@@ -86,14 +86,14 @@ return f.filter(color -> !color.equals("orange"))
 Flux<String> composedFlux =
 Flux.fromIterable(Arrays.asList("blue", "green", "orange", "purple"))
     .doOnNext(System.out::println)
-    .compose(filterAndMap);
+    .transformDeferred(filterAndMap);
 
 composedFlux.subscribe(d -> System.out.println("Subscriber 1 to Composed MapAndFilter :"+d));
 composedFlux.subscribe(d -> System.out.println("Subscriber 2 to Composed MapAndFilter: "+d));
 ----
 ====
 
-The following image shows how the `compose` operator works with per-subscriber transformations:
+The following image shows how the `transformDeferred` operator works with per-subscriber transformations:
 
 image::https://raw.githubusercontent.com/reactor/reactor-core/v3.0.7.RELEASE/src/docs/marble/gs-compose.png[Compose Operator : Per Subscriber transformation]
 
@@ -119,7 +119,7 @@ purple
 ====
 
 [[reactor.hotCold]]
-== Hot vs Cold
+== Hot Versus Cold
 
 So far, we have considered that all `Flux` (and `Mono`) are the same: They all represent
 an asynchronous sequence of data, and nothing happens before you subscribe.
@@ -514,7 +514,9 @@ Flux.range(1, 10)
     .subscribe(i -> System.out.println(Thread.currentThread().getName() + " -> " + i));
 ----
 <1> We force a number of rails instead of relying on the number of CPU cores.
+====
 
+====
 [source,java]
 ----
 Flux.range(1, 10)
@@ -579,8 +581,8 @@ method.
 As we described in the <<schedulers>> section, Reactor Core comes with several
 `Scheduler` implementations. While you can always create new instances through the `new*`
 factory methods, each `Scheduler` flavor also has a default singleton instance that is
-accessible through the direct factory method (such as `Schedulers.elastic()` versus
-`Schedulers.newElastic()`).
+accessible through the direct factory method (such as `Schedulers.boundedElastic()` versus
+`Schedulers.newBoundedElastic(...)`).
 
 These default instances are the ones used by operators that need a `Scheduler` to work
 when you do not explicitly specify one. For example, `Flux#delayElements(Duration)` uses
@@ -1134,7 +1136,7 @@ When the error happens during the processing of an `onNext` signal, the element 
 
 If that type of element needs cleanup, you need to implement it in the `onOperatorError` hook, possibly on top of error-rewriting code.
 
-=== The `onNextDropped` hook
+=== The `onNextDropped` Hook
 
 With malformed `Publishers`, there could be cases where an operator receives an element when it expected none (typically, after having received the `onError` or `onComplete` signals).
 In such cases, the unexpected element is "`dropped`" -- that is, passed to the `onNextDropped` hook.
@@ -1146,7 +1148,7 @@ Some operators that deal with buffers or collect values as part of their operati
 If you use such operators with the type(s) that need cleanup, you need to perform cleanup in these handlers.
 
 For example, `distinct` has such a callback that is invoked when the operator terminates (or is cancelled) in order to clear the collection it uses to judge whether an element is distinct or not.
-By default, the collection is a `HashSet`, and the cleanup callback is a `Hashet::clear`.
+By default, the collection is a `HashSet`, and the cleanup callback is a `HashSet::clear`.
 However, if you deal with reference-counted objects, you might want to change that to a more involved handler that would `release` each element in the set before calling `clear()` on it.
 
 

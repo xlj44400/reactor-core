@@ -24,15 +24,15 @@ With Gradle from repo.spring.io or Maven Central repositories (stable releases o
 ```groovy
     repositories {
 //      maven { url 'https://repo.spring.io/snapshot' }
-      maven { url 'https://repo.spring.io/milestone' }
+//      maven { url 'https://repo.spring.io/milestone' }
       mavenCentral()
     }
 
     dependencies {
-      //compile "io.projectreactor:reactor-core:3.3.0.BUILD-SNAPSHOT"
-      //testCompile("io.projectreactor:reactor-test:3.3.0.BUILD-SNAPSHOT")
-      compile "io.projectreactor:reactor-core:3.2.8.RELEASE"
-      testCompile("io.projectreactor:reactor-test:3.2.8.RELEASE")
+      //compile "io.projectreactor:reactor-core:3.3.1.BUILD-SNAPSHOT"
+      //testCompile("io.projectreactor:reactor-test:3.3.1.BUILD-SNAPSHOT")
+      compile "io.projectreactor:reactor-core:3.3.0.RELEASE"
+      testCompile("io.projectreactor:reactor-test:3.3.0.RELEASE")
     }
 ```
 
@@ -44,6 +44,21 @@ However it should work fine with Android SDK 26 (Android O) and above. See the
 [complete note](https://projectreactor.io/docs/core/release/reference/docs/index.html#prerequisites)
 in the reference guide.
 
+## Trouble importing the project in IDE?
+Since the introduction of Java 9 stubs in order to optimize the performance of debug backtraces, one can sometimes
+encounter cryptic messages from the build system when importing or re-importing the project in their IDE.
+
+For example: 
+
+ - `package StackWalker does not exist`: probably building under JDK8 but `java9stubs` was not added to sources
+ - `cannot find symbol @CallerSensitive`: probably building with JDK11+ and importing using JDK8
+
+When encountering these issues, one need to ensure that:
+
+ - Gradle JVM matches the JDK used by the IDE for the modules (in IntelliJ, `Modules Settings` JDK). Preferably, 1.8.
+ - The IDE is configured to delegate build to Gradle (in IntelliJ: `Build Tools > Gradle > Runner` and project setting uses that default)
+ 
+Then rebuild the project and the errors should disappear.
 
 ## Getting Started
 
@@ -56,7 +71,7 @@ https://www.infoq.com/articles/reactor-by-example !
 
 A Reactive Streams Publisher with basic flow operators.
 - Static factories on Flux allow for source generation from arbitrary callbacks types.
-- Instance methods allows operational building, materialized on each _Flux#subscribe()_, _Flux#subscribe()_ or multicasting operations such as _Flux#publish_ and _Flux#publishNext_.
+- Instance methods allows operational building, materialized on each subscription (_Flux#subscribe()_, ...) or multicasting operations (such as _Flux#publish_ and _Flux#publishNext_).
 
 [<img src="https://raw.githubusercontent.com/reactor/reactor-core/v3.1.3.RELEASE/src/docs/marble/flux.png" width="500">](https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Flux.html)
 
@@ -166,7 +181,7 @@ Most of this cool stuff uses bounded ring buffer implementation under the hood t
 
 ## What's more in it ?
 
-"Operator Fusion" (flow optimizers), health state observers, helpers to build custom reactive components, bounded queue generator, hash-wheel timer, converters from/to Java 9 Flow, Publisher and Java 8 CompletableFuture. The repository contains a `reactor-test` project with test features like the [`StepVerifier`](https://projectreactor.io/docs/test/release/api/index.html?reactor/test/StepVerifier.html).
+"Operator Fusion" (flow optimizers), health state observers, helpers to build custom reactive components, bounded queue generator, converters from/to Java 9 Flow, Publisher and Java 8 CompletableFuture. The repository contains a `reactor-test` project with test features like the [`StepVerifier`](https://projectreactor.io/docs/test/release/api/index.html?reactor/test/StepVerifier.html).
 
 -------------------------------------
 

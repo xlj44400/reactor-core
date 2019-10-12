@@ -20,8 +20,8 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
-import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
+import reactor.core.CorePublisher;
 import reactor.core.CoreSubscriber;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Scheduler.Worker;
@@ -34,7 +34,7 @@ import reactor.util.annotation.Nullable;
  * @param <T> the value type
  * @see <a href="https://github.com/reactor/reactive-streams-commons">Reactive-Streams-Commons</a>
  */
-final class FluxSubscribeOn<T> extends FluxOperator<T, T> {
+final class FluxSubscribeOn<T> extends InternalFluxOperator<T, T> {
 
 	final Scheduler scheduler;
 	final boolean requestOnSeparateThread;
@@ -49,16 +49,15 @@ final class FluxSubscribeOn<T> extends FluxOperator<T, T> {
 	}
 
 	@Override
-	@SuppressWarnings("unchecked")
-	public void subscribe(CoreSubscriber<? super T> actual) {
+	public CoreSubscriber<? super T> subscribeOrReturn(CoreSubscriber<? super T> actual) {
 		Worker worker;
-		
+
 		try {
 			worker = Objects.requireNonNull(scheduler.createWorker(),
 					"The scheduler returned a null Function");
 		} catch (Throwable e) {
 			Operators.error(actual, Operators.onOperatorError(e, actual.currentContext()));
-			return;
+			return null;
 		}
 
 		SubscribeOnSubscriber<T> parent = new SubscribeOnSubscriber<>(source,
@@ -74,6 +73,7 @@ final class FluxSubscribeOn<T> extends FluxOperator<T, T> {
 						actual.currentContext()));
 			}
 		}
+		return null;
 	}
 
 	static final class SubscribeOnSubscriber<T>
@@ -81,7 +81,7 @@ final class FluxSubscribeOn<T> extends FluxOperator<T, T> {
 
 		final CoreSubscriber<? super T> actual;
 
-		final Publisher<? extends T> source;
+		final CorePublisher<? extends T> source;
 
 		final Worker  worker;
 		final boolean requestOnSeparateThread;
@@ -108,7 +108,7 @@ final class FluxSubscribeOn<T> extends FluxOperator<T, T> {
 						Thread.class,
 						"thread");
 
-		SubscribeOnSubscriber(Publisher<? extends T> source, CoreSubscriber<? super T> actual,
+		SubscribeOnSubscriber(CorePublisher<? extends T> source, CoreSubscriber<? super T> actual,
 				Worker worker, boolean requestOnSeparateThread) {
 			this.actual = actual;
 			this.worker = worker;

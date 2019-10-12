@@ -57,6 +57,8 @@ final class Traces {
 			"reactor.trace.assembly.fullstacktrace",
 			"false"));
 
+	static final String CALL_SITE_GLUE = " ⇢ ";
+
 	/**
 	 * Transform the current stack trace into a {@link String} representation,
 	 * each element being prepended with a tabulation and appended with a
@@ -70,6 +72,8 @@ final class Traces {
 				Traces.class.getName() + "$SharedSecretsCallSiteSupplierFactory",
 				Traces.class.getName() + "$ExceptionCallSiteSupplierFactory",
 		};
+		// find one available call-site supplier w.r.t. the jdk version to provide
+		// linkage-compatibility between jdk 8 and 9+
 		callSiteSupplierFactory = Stream
 				.of(strategyClasses)
 				.flatMap(className -> {
@@ -79,6 +83,11 @@ final class Traces {
 						Supplier<Supplier<String>> function = (Supplier) clazz.getDeclaredConstructor()
 						                                                      .newInstance();
 						return Stream.of(function);
+					}
+					// explicitly catch LinkageError to support static code analysis
+					// tools detect the attempt at finding out jdk environment
+					catch (LinkageError e) {
+						return Stream.empty();
 					}
 					catch (Throwable e) {
 						return Stream.empty();
@@ -313,7 +322,13 @@ final class Traces {
 	 * from the assembly stack trace.
 	 */
 	static String extractOperatorAssemblyInformation(String source) {
-		return extractOperatorAssemblyInformation(source, false);
+		String[] parts = extractOperatorAssemblyInformationParts(source);
+		switch (parts.length) {
+			case 0:
+				return "[no operator assembly information]";
+			default:
+				return String.join(CALL_SITE_GLUE, parts);
+		}
 	}
 
 	static boolean isUserCode(String line) {
@@ -342,16 +357,15 @@ final class Traces {
 	 * @return a {@link String} representing operator and operator assembly site extracted
 	 * from the assembly stack trace.
 	 */
-	static String extractOperatorAssemblyInformation(String source, boolean skipFirst) {
+	static String[] extractOperatorAssemblyInformationParts(String source) {
 		String[] uncleanTraces = source.split("\n");
 		final List<String> traces = Stream.of(uncleanTraces)
 		                                  .map(String::trim)
 		                                  .filter(s -> !s.isEmpty())
-		                                  .skip(skipFirst ? 1 : 0)
 		                                  .collect(Collectors.toList());
 
 		if (traces.isEmpty()) {
-			return "[no operator assembly information]";
+			return new String[0];
 		}
 
 		int i = 0;
@@ -378,7 +392,7 @@ final class Traces {
 		}
 
 		//now we want something in the form "Flux.map ⇢ user.code.Class.method(Class.java:123)"
-		if (apiLine.isEmpty()) return userCodeLine;
+		if (apiLine.isEmpty()) return new String[] { userCodeLine };
 
 		int linePartIndex = apiLine.indexOf('(');
 		if (linePartIndex > 0) {
@@ -386,6 +400,6 @@ final class Traces {
 		}
 		apiLine = apiLine.replaceFirst("reactor.core.publisher.", "");
 
-		return apiLine + " ⇢ " + userCodeLine;
+		return new String[] { apiLine, "at " + userCodeLine };
 	}
 }

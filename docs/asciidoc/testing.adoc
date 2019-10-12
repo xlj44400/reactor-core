@@ -12,8 +12,8 @@ inside of the `reactor-core` repository.
 To use it in your tests, you must add it as a test dependency.
 The following example shows how to add `reactor-test` as a dependency in Maven:
 
-====
 .reactor-test in Maven, in `<dependencies>`
+====
 [source,xml]
 ----
 <dependency>
@@ -28,8 +28,8 @@ The following example shows how to add `reactor-test` as a dependency in Maven:
 
 The following example shows how to add `reactor-test` as a dependency in Gradle:
 
-====
 .reactor-test in Gradle, amend the `dependencies` block
+====
 [source,groovy]
 ----
 dependencies {

@@ -19,9 +19,9 @@ When you shift to asynchronous code, things can get much more complicated.
 
 Consider the following stack trace:
 
+.A typical Reactor stack trace
 ====
-.A typically Reactor stack trace
-[source]
+[source,java]
 ----
 java.lang.IndexOutOfBoundsException: Source emitted more than one item
 	at reactor.core.publisher.MonoSingle$SingleSubscriber.onNext(MonoSingle.java:129)
@@ -104,6 +104,11 @@ the `Flux`.
 [[debug-activate]]
 == Activating Debug Mode
 
+WARNING: this section describes the easiest but also the slowest way to enable
+the debugging capabitilies due to the fact that it captures the stacktrace on every operator.
+See <<checkpoint-alternative>> for a more fine grained way of debugging,
+and <<reactor-tools-debug>> for a more advanced and performant global option.
+
 Even though the stacktrace was still able to convey some information for someone with a
 bit of experience, we can see that it is not ideal by itself in more advanced cases.
 
@@ -137,7 +142,7 @@ When we reuse our initial example but activate the `operatorStacktrace` debug fe
 the stack trace is as follows:
 
 ====
-[source]
+[source,java]
 ----
 java.lang.IndexOutOfBoundsException: Source emitted more than one item
 	at reactor.core.publisher.MonoSingle$SingleSubscriber.onNext(MonoSingle.java:129)
@@ -254,6 +259,7 @@ We deal with a form of instrumentation here, and creating a stack trace is costl
 is why this debugging feature should only be activated in a controlled manner, as a last
 resort.
 
+[[checkpoint-alternative]]
 === The `checkpoint()` Alternative
 
 The debug mode is global and affects every single operator assembled into a `Flux` or a
@@ -319,6 +325,79 @@ NOTE: When both global debugging and local `checkpoint()` are enabled, checkpoin
 snapshot stacks are appended as suppressed error output after the observing operator
 graph and following the same declarative order.
 
+[[reactor-tools-debug]]
+== Production-ready Global Debugging
+Project Reactor comes with a separate Java Agent that instruments your code and adds
+debugging info without paying the cost of capturing the stacktrace on every operator call.
+The behaviour is very similar to <<debug-activate>>, but without the runtime performance overhead.
+
+To use it in your app, you must add it as a dependency.
+
+The following example shows how to add `reactor-tools` as a dependency in Maven:
+
+.reactor-tools in Maven, in `<dependencies>`
+====
+[source,xml]
+----
+<dependency>
+    <groupId>io.projectreactor</groupId>
+    <artifactId>reactor-tools</artifactId>
+    <1>
+</dependency>
+----
+<1> If you use the <<getting,BOM>>, you do not need to specify a `<version>`.
+====
+
+The following example shows how to add `reactor-tools` as a dependency in Gradle:
+
+.reactor-tools in Gradle, amend the `dependencies` block
+====
+[source,groovy]
+----
+dependencies {
+   compile 'io.projectreactor:reactor-tools'
+}
+----
+====
+
+It also needs to be explicitly initialized with:
+====
+[source,java]
+----
+ReactorDebugAgent.init();
+----
+====
+
+TIP: Since the implementation will instrument your classes when they are loaded,
+the best place to put it is before everything else in your main(String[]) methood:
+====
+[source,java]
+----
+public static void main(String[] args) {
+    ReactorDebugAgent.init();
+    SpringApplication.run(Application.class, args);
+}
+----
+====
+
+You may also re-process existing classes if you cannot run the init eagerly (e.g. in the tests):
+====
+[source,java]
+----
+ReactorDebugAgent.init();
+ReactorDebugAgent.processExistingClasses();
+----
+====
+
+WARNING: Be aware that the re-processing takes a couple of seconds due to the need to iterate over
+all loaded classes and apply the transformation.
+Use it only if you see that some call-sites are not instrumented.
+
+=== Limitations
+`ReactorDebugAgent` is implemented as a Java Agent and uses https://bytebuddy.net/#/[ByteBuddy]
+to perform the self-attach.
+Self-attach may not work on some JVMs, please refer to ByteBuddy's documentation for more details.
+
 == Logging a Sequence
 
 In addition to stack trace debugging and analysis, another powerful tool to have in your
@@ -371,7 +450,6 @@ This prints out the following (through the logger's console appender):
 10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | onNext(3)
 10:45:20.205 [main] INFO  reactor.Flux.Range.1 - | cancel() <4>
 ----
-====
 
 Here, in addition to the logger's own formatter (time, thread, level, message), the
 `log()` operator outputs a few things in its own format:
@@ -390,6 +468,7 @@ synchronous or asynchronous fusion.
 downstream.
 <3> Then the range sends three values in a row.
 <4> On the last line, we see `cancel()`.
+====
 
 The last line, (4), is the most interesting. We can see the `take` in action there. It
 operates by cutting the sequence short after it has seen enough elements emitted. In

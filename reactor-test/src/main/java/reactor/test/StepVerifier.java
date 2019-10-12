@@ -303,6 +303,18 @@ public interface StepVerifier {
 	StepVerifier log();
 
 	/**
+	 * Trigger the subscription and prepare for verifications but doesn't block. Calling one
+	 * of the {@link #verify()} methods afterwards will block until the sequence is validated
+	 * and throw if assertions fail.
+	 * <p>
+	 * Calling this method more than once in a row should be a NO-OP, returning the same
+	 * instance as the first call.
+	 *
+	 * @return a {@link StepVerifier} that is in progress but on which one can chose to block later.
+	 */
+	StepVerifier verifyLater();
+
+	/**
 	 * Verify the signals received by this subscriber. Unless a default timeout has been
 	 * set before construction of the {@link StepVerifier} via {@link StepVerifier#setDefaultTimeout(Duration)},
 	 * this method will <strong>block</strong> until the stream has been terminated
@@ -1070,6 +1082,19 @@ public interface StepVerifier {
 		 * of normal operations, eg. when an element doesn't match a filter.
 		 */
 		Assertions hasDiscardedExactly(Object... values);
+
+		/**
+		 * Assert that the tested publisher has discarded one or more elements to the
+		 * {@link reactor.core.publisher.Flux#doOnDiscard(Class, Consumer) discard} hook,
+		 * and check that the collection of discarded elements matches a predicate.
+		 */
+		Assertions hasDiscardedElementsMatching(Predicate<Collection<Object>> matcher);
+
+		/**
+		 * Assert that the tested publisher has discarded one or more elements to the
+		 * {@link reactor.core.publisher.Flux#doOnDiscard(Class, Consumer) discard} hook, and assert them as a collection.
+		 */
+		Assertions hasDiscardedElementsSatisfying(Consumer<Collection<Object>> consumer);
 
 		/**
 		 * Assert that the tested publisher has dropped at least one error to the
